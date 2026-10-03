@@ -1,0 +1,3 @@
+# The bin's shebang must end in LF: `#!/usr/bin/env node\r` fails on macOS and
+# Linux, and this repo is written on Windows with autocrlf on.
+* text=auto eol=lf
