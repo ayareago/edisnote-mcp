@@ -1,0 +1,31 @@
+{
+  "name": "edisnote-mcp",
+  "version": "0.1.0",
+  "description": "Let Claude Code, Cursor and other AI agents see the notes and images you save with Edisnote. Read-only, local, no dependencies.",
+  "type": "module",
+  "bin": {
+    "edisnote-mcp": "bin/edisnote-mcp.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "mcp",
+    "edisnote",
+    "claude",
+    "moodboard",
+    "references",
+    "obsidian"
+  ],
+  "author": "Ayodeji Areago",
+  "license": "MIT"
+}
