@@ -1,9 +1,10 @@
 /**
- * What Edisnote offers an agent, in the three shapes MCP has:
+ * What Edisnote offers an agent:
  *
  * - resources — one per note, so `@` in Claude Code lists notes beside files;
  * - tools     — what the agent calls by itself ("check my Edisnote refs");
- * - prompts   — slash commands for the things a person asks for most.
+ *
+ * and no prompts; see the note above createHandlers().
  *
  * Every handler re-reads the folder. Sixty notes is a few milliseconds and the
  * extension may have written a new image two seconds ago; a cache would be the
@@ -257,34 +258,12 @@ const TOOLS = [
   },
 ].map((tool) => ({ ...tool, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } }));
 
-const PROMPTS = [
-  {
-    name: 'latest',
-    title: 'Newest images in a note',
-    description: 'Look at the newest images added to a note. /edisnote:latest <note> [count]',
-    arguments: [
-      { name: 'note', description: 'Note id (as in the @ list) or a word from its title', required: true },
-      { name: 'count', description: 'How many of the newest images. Default 1.', required: false },
-    ],
-  },
-  {
-    name: 'use',
-    title: 'Use a note as the reference',
-    description: 'Bring a whole note — text, sources and newest images — into the conversation as the reference. /edisnote:use <note>',
-    arguments: [{ name: 'note', description: 'Note id (as in the @ list) or a word from its title', required: true }],
-  },
-  {
-    name: 'recent',
-    title: 'What I just saved',
-    description: 'Look at the images you saved most recently, across all notes. /edisnote:recent [count]',
-    arguments: [{ name: 'count', description: `How many. Default ${DEFAULT_IMAGES}.`, required: false }],
-  },
-];
-
-/** Prompt messages carry one content block each; this fans a list out. */
-function asMessages(content) {
-  return content.map((block) => ({ role: 'user', content: block }));
-}
+/*
+ * No MCP prompts, on purpose. They showed up as /edisnote:latest and friends,
+ * clicking one inserted Claude Code's long internal name, and the desktop app
+ * didn't list them at all. The /edisnote skill (skill/SKILL.md) does the same
+ * jobs under one plain name in both the terminal and the desktop app.
+ */
 
 /**
  * @param {string} root the notes folder
@@ -329,30 +308,6 @@ export function createHandlers(root) {
     },
   };
 
-  const prompts = {
-    async latest({ note, count }) {
-      const vault = await vaultOrMiss(root);
-      const picked = pickNote(vault, note);
-      const n = clampCount(count, 1) || 1;
-      const { images } = await imagesOf(root, picked);
-      const chosen = newest(images, n);
-      if (!chosen.length) return { text: `My Edisnote note "${picked.title}" has no images yet.`, content: [] };
-      const lead = `Here ${chosen.length === 1 ? 'is the newest image' : `are the ${chosen.length} newest images`} I added to my Edisnote note "${picked.title}" (it has ${images.length} in total). Take a look.`;
-      return { text: lead, content: await imageContent(root, chosen, picked) };
-    },
-    async use({ note }) {
-      const vault = await vaultOrMiss(root);
-      const picked = pickNote(vault, note);
-      const content = await readNoteContent(root, picked, DEFAULT_IMAGES);
-      return { text: `Use my Edisnote note "${picked.title}" as the reference for what we're working on. Here it is:`, content };
-    },
-    async recent({ count }) {
-      const vault = await vaultOrMiss(root);
-      const content = await recentAcrossNotes(root, vault, clampCount(count, DEFAULT_IMAGES) || DEFAULT_IMAGES);
-      return { text: 'These are the images I saved in Edisnote most recently. Take a look.', content };
-    },
-  };
-
   /** Note ids for argument autocompletion, best match first. */
   async function completeNote(value) {
     const vault = await loadVault(root);
@@ -370,7 +325,6 @@ export function createHandlers(root) {
         capabilities: {
           resources: { listChanged: true },
           tools: { listChanged: false },
-          prompts: { listChanged: false },
           completions: {},
         },
         serverInfo: { name: NAME, title: 'Edisnote', version: VERSION },
@@ -445,25 +399,8 @@ export function createHandlers(root) {
       }
     },
 
-    'prompts/list': () => ({ prompts: PROMPTS }),
-
-    async 'prompts/get'({ name, arguments: args }) {
-      const prompt = Object.hasOwn(prompts, name) ? prompts[name] : null;
-      if (!prompt) throw new RpcError(INVALID_PARAMS, `Unknown prompt: ${name}`);
-      try {
-        const { text, content } = await prompt(args ?? {});
-        const meta = PROMPTS.find((p) => p.name === name);
-        return { description: meta.title, messages: asMessages([{ type: 'text', text }, ...content]) };
-      } catch (err) {
-        if (err instanceof Miss) throw new RpcError(INVALID_PARAMS, err.message);
-        throw err;
-      }
-    },
-
     async 'completion/complete'({ ref, argument }) {
-      const isNoteArg =
-        argument?.name === 'note' &&
-        ((ref?.type === 'ref/prompt' && ['latest', 'use'].includes(ref.name)) || (ref?.type === 'ref/resource' && ref.uri === 'note://{note}'));
+      const isNoteArg = argument?.name === 'note' && ref?.type === 'ref/resource' && ref.uri === 'note://{note}';
       if (!isNoteArg) return { completion: { values: [] } };
       return completeNote(argument.value ?? '');
     },

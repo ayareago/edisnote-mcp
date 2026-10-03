@@ -112,17 +112,19 @@ test('resources: one per note, read returns text then image blobs', async () => 
   await assert.rejects(h['resources/read']({ uri: 'note://nope' }), /not found/);
 });
 
-test('prompts: latest returns the newest image as a message', async () => {
-  const { messages } = await h['prompts/get']({ name: 'latest', arguments: { note: 'apex-signage', count: '1' } });
-  assert.match(messages[0].content.text, /newest image/);
-  assert.equal(messages.filter((m) => m.content.type === 'image').length, 1);
-  await assert.rejects(h['prompts/get']({ name: 'latest', arguments: { note: 'apex' } }), /matches 2 notes/);
+// The /edisnote skill replaced MCP prompts: their long internal names confused
+// in the terminal and the desktop app never listed them. Offering none keeps
+// /edisnote:latest and friends from reappearing.
+test('no MCP prompts are offered', () => {
+  assert.equal(h.initialize({ protocolVersion: '2025-06-18' }).capabilities.prompts, undefined);
+  assert.equal(h['prompts/list'], undefined);
 });
 
-test('completion suggests note ids for the note argument only', async () => {
-  const { completion } = await h['completion/complete']({ ref: { type: 'ref/prompt', name: 'use' }, argument: { name: 'note', value: 'apex' } });
+test('completion suggests note ids for the note template only', async () => {
+  const ref = { type: 'ref/resource', uri: 'note://{note}' };
+  const { completion } = await h['completion/complete']({ ref, argument: { name: 'note', value: 'apex' } });
   assert.deepEqual(completion.values.sort(), ['apex-buffet', 'apex-signage']);
-  const none = await h['completion/complete']({ ref: { type: 'ref/prompt', name: 'recent' }, argument: { name: 'count', value: '' } });
+  const none = await h['completion/complete']({ ref: { type: 'ref/prompt', name: 'use' }, argument: { name: 'note', value: '' } });
   assert.deepEqual(none.completion.values, []);
 });
 

@@ -7,13 +7,20 @@ Collect references in Chrome, then tell your agent "look at the two images I
 just added to my moodboard note". It sees the actual pictures, not just file
 names.
 
-- **`@` your notes.** Type `@` in Claude Code and your notes show up next to
-  your files. Pick one and it comes with its text, its source links and its
-  newest images.
+- **`/edisnote`**, in the Claude desktop app or the terminal:
+
+  | Type | You get |
+  |---|---|
+  | `/edisnote` | your recent notes to pick from |
+  | `/edisnote moodboard` | that note: its text, source links and newest images |
+  | `/edisnote moodboard 2` | the 2 newest images in it |
+  | `/edisnote moodboard #3` | image 3 |
+  | `/edisnote recent` | what you just saved, from any note |
+
 - **Ask in plain words.** "Check my Edisnote references for the Apex signage"
   works. The agent finds the note and opens the images itself.
-- **Shortcuts.** `/edisnote:latest <note>` shows the newest image in a note.
-  `/edisnote:recent` shows what you saved most recently, from any note.
+- **`@` your notes (terminal).** Type `@` in Claude Code in a terminal and your
+  notes show up next to your files.
 
 It only reads. It never changes, moves, or deletes your notes, and nothing
 leaves your computer except what your agent sends to its own AI model.
@@ -30,7 +37,7 @@ leaves your computer except what your agent sends to its own AI model.
 npx -y edisnote-mcp install
 ```
 
-That adds it to Claude Code for every project and prints the config for other
+That adds it to Claude Code for every project, adds the `/edisnote` command, and prints the config for other
 apps. Start a new Claude Code session afterwards.
 
 If your notes are somewhere other than `Documents\Notes`:

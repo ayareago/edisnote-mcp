@@ -9,6 +9,7 @@
   "files": [
     "bin",
     "src",
+    "skill",
     "README.md",
     "LICENSE"
   ],

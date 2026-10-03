@@ -7,13 +7,16 @@
  * Every form takes --dir <folder>; the default is Documents\Notes.
  */
 
-import { watch } from 'node:fs';
+import { watch, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { serveStdio } from '../src/rpc.js';
 import { createHandlers, listFingerprint, NAME, VERSION } from '../src/server.js';
 import { chooseFolder, loadVault, defaultFolder } from '../src/vault.js';
 
+const SKILL_MARKER = 'edisnote-mcp skill';
 const argv = process.argv.slice(2);
 const command = argv[0] && !argv[0].startsWith('-') ? argv[0] : 'serve';
 const root = chooseFolder(argv);
@@ -99,8 +102,9 @@ function install() {
   const claude = runClaude(['mcp', 'add', '--scope', 'user', NAME, '--', ...full]);
   if (claude.status === 0) {
     console.log('Added to Claude Code for every project. Start a new session, then:');
-    console.log('  @          pick a note from the list');
-    console.log('  /edisnote:latest <note>   the newest image in a note');
+    console.log('  /edisnote                     pick one of your recent notes');
+    console.log('  /edisnote moodboard 2         the 2 newest images in that note');
+    console.log('  /edisnote recent              what you just saved, from any note');
     console.log('  or just say "look at my Edisnote note on …"\n');
   } else if (/already exists/i.test(`${claude.stdout}${claude.stderr}`)) {
     console.log(`Claude Code already has a server called "${NAME}". To replace it:`);
@@ -111,9 +115,37 @@ function install() {
     console.log(`  claude mcp add --scope user ${NAME} -- ${full.map(quote).join(' ')}\n`);
   }
 
+  installSkill();
+
   const [cmd, ...args] = full;
   console.log('For Cursor, Claude Desktop or any other MCP app, add this to its MCP config:');
   console.log(JSON.stringify({ mcpServers: { [NAME]: { command: cmd, args } } }, null, 2));
+}
+
+/**
+ * The Claude desktop app's message box lists skills under `/` but not MCP
+ * prompts or resources, so without this the server is reachable there only by
+ * asking in words. The skill is the `/edisnote` command for the desktop app.
+ *
+ * A file at that path without our marker is someone's own skill, and an
+ * installer has no business replacing it.
+ */
+function installSkill() {
+  const source = fileURLToPath(new URL('../skill/SKILL.md', import.meta.url));
+  const dir = join(homedir(), '.claude', 'skills', 'edisnote');
+  const target = join(dir, 'SKILL.md');
+  const ours = readFileSync(source, 'utf8');
+  if (existsSync(target)) {
+    const current = readFileSync(target, 'utf8');
+    if (current === ours) return console.log('The /edisnote skill is already up to date.\n');
+    if (!current.includes(SKILL_MARKER)) {
+      console.log(`Left ${target} alone: it isn't one this installer wrote.\n`);
+      return;
+    }
+  }
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(target, ours);
+  console.log('Added the /edisnote skill. In the Claude desktop app, type /edisnote to pick a note.\n');
 }
 
 /**
