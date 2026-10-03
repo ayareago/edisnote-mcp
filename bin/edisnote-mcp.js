@@ -87,16 +87,16 @@ async function check() {
 function install() {
   const self = fileURLToPath(import.meta.url);
   const viaNpx = /[\\/]_npx[\\/]/.test(self);
-  const launch = viaNpx ? ['npx', '-y', 'edisnote-mcp'] : [process.execPath, self];
+  // Plain `node`, not process.execPath: the full path is usually
+  // C:\Program Files\..., and a space in the command is one more way for a
+  // config file or shell to split it in two.
+  const launch = viaNpx ? ['npx', '-y', 'edisnote-mcp'] : ['node', self];
   const dirArgs = root !== defaultFolder() ? ['--dir', root] : [];
   const full = [...launch, ...dirArgs];
 
   console.log(`Edisnote MCP ${VERSION} — reading ${root}\n`);
 
-  const claude = spawnSync('claude', ['mcp', 'add', '--scope', 'user', NAME, '--', ...full], {
-    encoding: 'utf8',
-    shell: process.platform === 'win32',
-  });
+  const claude = runClaude(['mcp', 'add', '--scope', 'user', NAME, '--', ...full]);
   if (claude.status === 0) {
     console.log('Added to Claude Code for every project. Start a new session, then:');
     console.log('  @          pick a note from the list');
@@ -114,6 +114,19 @@ function install() {
   const [cmd, ...args] = full;
   console.log('For Cursor, Claude Desktop or any other MCP app, add this to its MCP config:');
   console.log(JSON.stringify({ mcpServers: { [NAME]: { command: cmd, args } } }, null, 2));
+}
+
+/**
+ * Runs the claude CLI without a shell first: through one, Node joins the args
+ * with spaces unescaped, and the first install registered "C:\Program" as the
+ * command. Only a Windows install that is a .cmd shim (npm's) needs the shell,
+ * and then every argument is quoted by hand.
+ */
+function runClaude(args) {
+  const direct = spawnSync('claude', args, { encoding: 'utf8' });
+  if (!direct.error || process.platform !== 'win32') return direct;
+  const line = ['claude', ...args].map((a) => (/[\s"&|<>^]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a)).join(' ');
+  return spawnSync(line, { encoding: 'utf8', shell: true });
 }
 
 function quote(arg) {
