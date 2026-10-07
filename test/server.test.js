@@ -2,10 +2,19 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { join, resolve } from 'node:path';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
+import { mkdtemp, mkdir, writeFile, utimes, symlink, rm } from 'node:fs/promises';
 import { createHandlers, listFingerprint } from '../src/server.js';
 import { dispatch, serveStdio } from '../src/rpc.js';
-import { loadVault, imagesOf, chooseFolder, isInside } from '../src/vault.js';
+import {
+  loadVault,
+  imagesOf,
+  chooseFolder,
+  isInside,
+  findFolders,
+  locateFolder,
+  searchRoots,
+} from '../src/vault.js';
 import { makeVault, PNG, BOARD_LATE, BOARD_ONLY } from './fixture.js';
 
 let vault;
@@ -165,9 +174,70 @@ test('rpc: replies in flight when stdin closes are still sent', async () => {
   assert.equal(out.trim().split('\n').length, 3);
 });
 
-test('folder choice: --dir beats env beats default, ~ expands', () => {
+test('folder choice: --dir beats env, nothing named is null, ~ expands', () => {
   assert.equal(chooseFolder(['--dir', '/x/y'], { EDISNOTE_DIR: '/env' }), resolve('/x/y'));
   assert.equal(chooseFolder([], { EDISNOTE_DIR: '/env' }), resolve('/env'));
-  assert.equal(chooseFolder([], {}), resolve(homedir(), 'Documents', 'Notes'));
+  assert.equal(chooseFolder([], {}), null);
   assert.equal(chooseFolder(['--dir', '~/N'], {}), resolve(homedir(), 'N'));
+});
+
+/** A fake home with Edisnote folders where people really put them. */
+async function makeHome() {
+  const home = await mkdtemp(join(tmpdir(), 'edisnote-home-'));
+  const vaultAt = async (rel, syncedAt) => {
+    const dir = join(home, rel);
+    await mkdir(join(dir, '.sidenote'), { recursive: true });
+    await writeFile(join(dir, '.sidenote', 'state.json'), '{}');
+    await utimes(join(dir, '.sidenote', 'state.json'), syncedAt, syncedAt);
+    return dir;
+  };
+  const oneDrive = await vaultAt(join('OneDrive', 'Documents', 'Notes'), new Date(2026, 9, 6));
+  const desktop = await vaultAt(join('Desktop', 'Refs'), new Date(2026, 9, 1));
+  await vaultAt(join('a', 'b', 'c', 'too-deep'), new Date(2026, 9, 7));
+  await vaultAt(join('node_modules', 'pkg'), new Date(2026, 9, 7));
+  await mkdir(join(home, 'Documents', 'Notes'), { recursive: true }); // another app's, no marker
+  return { home, oneDrive, desktop };
+}
+
+test('discovery: finds folders by the marker, newest sync first, within depth', async () => {
+  const { home, oneDrive, desktop } = await makeHome();
+  const found = await findFolders([{ dir: home, depth: 3 }]);
+  assert.deepEqual(found.map((f) => f.dir), [oneDrive, desktop]);
+  await rm(home, { recursive: true, force: true });
+});
+
+test('discovery: a link is not followed, even to a real Edisnote folder', async () => {
+  const { home } = await makeHome();
+  const outside = await mkdtemp(join(tmpdir(), 'edisnote-outside-'));
+  await mkdir(join(outside, '.sidenote'), { recursive: true });
+  await writeFile(join(outside, '.sidenote', 'state.json'), '{}');
+  await symlink(outside, join(home, 'linked'), 'junction');
+  const found = await findFolders([{ dir: home, depth: 3 }]);
+  assert.ok(!found.some((f) => f.dir.startsWith(join(home, 'linked'))));
+  // Control: the same folder is found when it is a root, so the check can fail.
+  assert.equal((await findFolders([{ dir: outside, depth: 0 }]))[0].dir, outside);
+  await rm(home, { recursive: true, force: true });
+  await rm(outside, { recursive: true, force: true });
+});
+
+test('locate: a named folder wins; with nothing found the root is null', async () => {
+  const { home, oneDrive } = await makeHome();
+  const roots = [{ dir: home, depth: 3 }];
+  assert.equal((await locateFolder(['--dir', '/x'], {}, roots)).root, resolve('/x'));
+  const found = await locateFolder([], {}, roots);
+  assert.equal(found.root, oneDrive);
+  assert.equal(found.how, 'found');
+  const empty = await mkdtemp(join(tmpdir(), 'edisnote-empty-'));
+  const none = await locateFolder([], {}, [{ dir: empty, depth: 3 }]);
+  assert.deepEqual([none.root, none.how], [null, 'none']);
+  const res = await createHandlers(none.root)['tools/call']({ name: 'list_notes', arguments: {} });
+  assert.match(texts(res.content), /found on this computer.*Sync off/);
+  await rm(home, { recursive: true, force: true });
+  await rm(empty, { recursive: true, force: true });
+});
+
+test('search roots include OneDrive when Windows says where it is', () => {
+  const dirs = searchRoots({ OneDrive: 'D:\\OD' }, '/home/me').map((r) => r.dir);
+  assert.ok(dirs.includes('/home/me'));
+  assert.ok(dirs.includes('D:\\OD'));
 });

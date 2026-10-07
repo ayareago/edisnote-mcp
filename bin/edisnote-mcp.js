@@ -4,37 +4,38 @@
  * edisnote-mcp install    register it with Claude Code, print config for others
  * edisnote-mcp check      show what the server can see, then exit
  *
- * Every form takes --dir <folder>; the default is Documents\Notes.
+ * Every form takes --dir <folder>. Without it, the folder is found on disk by
+ * the marker Edisnote writes into whichever folder it syncs to.
  */
 
 import { watch, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { serveStdio } from '../src/rpc.js';
 import { createHandlers, listFingerprint, NAME, VERSION } from '../src/server.js';
-import { chooseFolder, loadVault, defaultFolder } from '../src/vault.js';
+import { locateFolder, loadVault } from '../src/vault.js';
 
 const SKILL_MARKER = 'edisnote-mcp skill';
+const NO_FOLDER = 'Turn on folder sync in Edisnote (the "Sync off" chip in the panel footer) and pick a folder, or pass --dir <folder>.';
 const argv = process.argv.slice(2);
 const command = argv[0] && !argv[0].startsWith('-') ? argv[0] : 'serve';
-const root = chooseFolder(argv);
 
 if (argv.includes('--version') || command === 'version') {
   console.log(VERSION);
-} else if (command === 'serve') {
-  serve();
-} else if (command === 'check') {
-  await check();
-} else if (command === 'install') {
-  install();
-} else {
+} else if (!['serve', 'check', 'install'].includes(command)) {
   console.error(`Unknown command "${command}". Try: edisnote-mcp install | check | --version`);
   process.exitCode = 1;
+} else {
+  const located = await locateFolder(argv);
+  if (command === 'serve') serve(located.root);
+  else if (command === 'check') await check(located);
+  else await install(located);
 }
 
-function serve() {
+function serve(root) {
   const { notify, closed } = serveStdio(createHandlers(root));
 
   // New notes should show up in the @ list without restarting the agent. The
@@ -67,16 +68,20 @@ function serve() {
   });
 }
 
-async function check() {
+async function check({ root, how, found }) {
   const vault = await loadVault(root);
   if (!vault.found) {
-    console.log(`No folder at ${root}.`);
-    console.log('Turn on folder sync in Edisnote (the "Sync off" chip), or pass --dir <folder>.');
+    console.log(root ? `No folder at ${root}.` : 'No Edisnote folder found on this computer.');
+    console.log(NO_FOLDER);
     process.exitCode = 1;
     return;
   }
   const images = vault.notes.reduce((sum, n) => sum + n.embeds.filter((e) => !e.remote).length, 0);
-  console.log(`Edisnote folder: ${root}`);
+  console.log(`Edisnote folder: ${root}${how === 'found' ? '  (found on disk)' : ''}`);
+  if (found.length > 1) {
+    console.log(`Also found ${found.length - 1} other Edisnote folder(s); using the most recently synced:`);
+    for (const other of found.slice(1)) console.log(`  ${other.dir}`);
+  }
   console.log(`${vault.notes.length} notes, ${images} images embedded in them.`);
   for (const note of vault.notes.slice(0, 5)) console.log(`  ${note.title}  (${note.id})`);
   if (vault.notes.length > 5) console.log(`  …and ${vault.notes.length - 5} more`);
@@ -86,18 +91,33 @@ async function check() {
  * Registers the server with Claude Code at user scope, so it works in every
  * project. Run through npx, it registers `npx -y edisnote-mcp` and so always
  * gets the published version; run from a checkout, it registers that checkout.
+ *
+ * The folder is pinned with --dir only when someone chose it: named it, or
+ * picked one of several. Otherwise the server finds it at each start, so
+ * pointing Edisnote at a new folder later needs no reinstall.
  */
-function install() {
+async function install({ root, how, found }) {
   const self = fileURLToPath(import.meta.url);
   const viaNpx = /[\\/]_npx[\\/]/.test(self);
   // Plain `node`, not process.execPath: the full path is usually
   // C:\Program Files\..., and a space in the command is one more way for a
   // config file or shell to split it in two.
   const launch = viaNpx ? ['npx', '-y', 'edisnote-mcp'] : ['node', self];
-  const dirArgs = root !== defaultFolder() ? ['--dir', root] : [];
-  const full = [...launch, ...dirArgs];
 
-  console.log(`Edisnote MCP ${VERSION} — reading ${root}\n`);
+  let pin = how === 'named';
+  if (found.length > 1) {
+    root = await pickFolder(found);
+    pin = true;
+  }
+  const full = [...launch, ...(pin ? ['--dir', root] : [])];
+
+  console.log(`Edisnote MCP ${VERSION}`);
+  if (root) {
+    console.log(`Reading ${root}${pin ? '' : '  (found on disk; it will follow the folder if you change it in Edisnote)'}\n`);
+  } else {
+    console.log(`No Edisnote folder found yet. ${NO_FOLDER}`);
+    console.log('Installing anyway: it will find the folder once sync is on.\n');
+  }
 
   const claude = runClaude(['mcp', 'add', '--scope', 'user', NAME, '--', ...full]);
   if (claude.status === 0) {
@@ -120,6 +140,26 @@ function install() {
   const [cmd, ...args] = full;
   console.log('For Cursor, Claude Desktop or any other MCP app, add this to its MCP config:');
   console.log(JSON.stringify({ mcpServers: { [NAME]: { command: cmd, args } } }, null, 2));
+}
+
+/**
+ * Several Edisnote folders (an old one left behind, a second Chrome profile):
+ * ask in a terminal, newest first as the default. With no terminal to ask in,
+ * take the newest and say how to choose another.
+ */
+async function pickFolder(found) {
+  console.log('Found more than one Edisnote folder:');
+  found.forEach((f, i) => console.log(`  ${i + 1}. ${f.dir}${i === 0 ? '  (synced most recently)' : ''}`));
+  if (!process.stdin.isTTY) {
+    console.log('Using 1. To choose another, run install again with --dir "<folder>".\n');
+    return found[0].dir;
+  }
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await rl.question(`Which one? [1-${found.length}, Enter for 1] `);
+  rl.close();
+  const n = Number.parseInt(answer, 10);
+  console.log('');
+  return found[n >= 1 && n <= found.length ? n - 1 : 0].dir;
 }
 
 /**

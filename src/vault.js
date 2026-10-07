@@ -25,19 +25,89 @@ import {
 /** Folders that hold Edisnote's own machinery or another app's, never notes. */
 const SKIP_DIRS = new Set(['attachments', 'collections', 'node_modules']);
 
-export function defaultFolder() {
-  return join(homedir(), 'Documents', 'Notes');
+/** Edisnote writes this into every folder it syncs to, and nowhere else. */
+export const MARKER = join('.sidenote', 'state.json');
+
+/**
+ * Where to look when nobody named a folder, and how deep. Depth 3 under home
+ * reaches OneDrive\Documents\Notes, which is where "Documents" really is on
+ * many Windows laptops; the OneDrive variables cover one kept outside home.
+ */
+export function searchRoots(env = process.env, home = homedir()) {
+  const roots = [{ dir: home, depth: 3 }];
+  for (const key of ['OneDrive', 'OneDriveConsumer', 'OneDriveCommercial']) {
+    if (env[key]) roots.push({ dir: env[key], depth: 3 });
+  }
+  roots.push({ dir: join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs'), depth: 2 });
+  return roots;
+}
+
+/** Big trees that never hold a notes folder; walking them is only cost. */
+const SEARCH_SKIP = new Set(['node_modules', 'AppData', 'Library', 'Application Data']);
+
+/**
+ * Every Edisnote folder under `roots`, most recently synced first. A folder
+ * counts only if it holds the marker, so a stray "Notes" folder from another
+ * app is never picked.
+ *
+ * Breadth-first, so shallow folders are seen before the visit cap. Links and
+ * junctions are not followed (a Dirent for one is not a directory), which
+ * keeps the walk inside the roots and out of loops. It only lists names and
+ * stats one file per folder; nothing is opened.
+ *
+ * @returns {Promise<{dir: string, syncedAt: number}[]>}
+ */
+export async function findFolders(roots = searchRoots(), maxVisits = 4000) {
+  const found = new Map();
+  let visits = 0;
+  for (const { dir, depth } of roots) {
+    const queue = [[resolve(dir), 0]];
+    while (queue.length && visits < maxVisits) {
+      const [abs, level] = queue.shift();
+      visits++;
+      const marker = await exists(join(abs, MARKER));
+      if (marker?.isFile()) {
+        const key = process.platform === 'win32' ? abs.toLowerCase() : abs;
+        found.set(key, { dir: abs, syncedAt: marker.mtimeMs });
+        continue;
+      }
+      if (level >= depth) continue;
+      let entries;
+      try {
+        entries = await readdir(abs, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name.startsWith('.') || SEARCH_SKIP.has(entry.name)) continue;
+        queue.push([join(abs, entry.name), level + 1]);
+      }
+    }
+  }
+  return [...found.values()].sort((a, b) => b.syncedAt - a.syncedAt);
 }
 
 /**
- * The folder to read: `--dir` beats `EDISNOTE_DIR` beats the default the
- * extension's README suggests. A leading `~` is expanded because a JSON config
- * file won't do it for you.
+ * The folder someone named: `--dir` beats `EDISNOTE_DIR`; null when neither
+ * was given. A leading `~` is expanded because a JSON config file won't do it
+ * for you.
  */
 export function chooseFolder(argv = process.argv.slice(2), env = process.env) {
   const i = argv.indexOf('--dir');
-  const picked = (i >= 0 && argv[i + 1]) || env.EDISNOTE_DIR || defaultFolder();
-  return resolve(picked.replace(/^~(?=$|[\\/])/, homedir()));
+  const picked = (i >= 0 && argv[i + 1]) || env.EDISNOTE_DIR;
+  return picked ? resolve(picked.replace(/^~(?=$|[\\/])/, homedir())) : null;
+}
+
+/**
+ * The folder to read. A named one is used as given. Otherwise the most
+ * recently synced Edisnote folder found on disk; `found` lists them all so
+ * `install` can offer the choice. With none found, `root` is null.
+ */
+export async function locateFolder(argv = process.argv.slice(2), env = process.env, roots = searchRoots(env)) {
+  const named = chooseFolder(argv, env);
+  if (named) return { root: named, how: 'named', found: [] };
+  const found = await findFolders(roots);
+  return { root: found[0]?.dir ?? null, how: found.length ? 'found' : 'none', found };
 }
 
 /** True when `abs` is `root` or somewhere beneath it. */
@@ -141,7 +211,7 @@ async function loadNote(root, abs) {
  * @returns {Promise<{root: string, found: boolean, notes: Awaited<ReturnType<typeof loadNote>>[]}>}
  */
 export async function loadVault(root) {
-  const info = await exists(root);
+  const info = root ? await exists(root) : null;
   if (!info?.isDirectory()) return { root, found: false, notes: [] };
   const files = await listMarkdown(root);
   const notes = [];

@@ -28,7 +28,8 @@ leaves your computer except what your agent sends to its own AI model.
 ## Before you start
 
 1. **Edisnote saves to a folder.** In the Edisnote panel, click **Sync off** in
-   the footer and pick a folder. `Documents\Notes` is the default this uses.
+   the footer and pick any folder. This finds it on its own: Edisnote leaves a
+   small marker in the folder it syncs to, and that's what it looks for.
 2. **Node.js 20 or newer** ([nodejs.org](https://nodejs.org)).
 
 ## Install
@@ -40,7 +41,9 @@ npx -y edisnote-mcp install
 That adds it to Claude Code for every project, adds the `/edisnote` command, and prints the config for other
 apps. Start a new Claude Code session afterwards.
 
-If your notes are somewhere other than `Documents\Notes`:
+It finds your Edisnote folder by itself, and follows it if you change folders
+in Edisnote later. If you have more than one, it asks which. To name one
+yourself:
 
 ```bash
 npx -y edisnote-mcp install --dir "D:\My Notes"
@@ -65,7 +68,7 @@ Desktop: Settings → Developer → Edit Config):
 }
 ```
 
-Add `"--dir", "D:\\My Notes"` to `args` if your folder is elsewhere.
+It finds your folder the same way. To name one, add `"--dir", "D:\\My Notes"` to `args`.
 
 ## What your agent gets
 
