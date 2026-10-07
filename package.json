@@ -28,5 +28,11 @@
     "obsidian"
   ],
   "author": "Ayodeji Areago",
+  "homepage": "https://github.com/ayareago/edisnote-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ayareago/edisnote-mcp.git"
+  },
+  "bugs": "https://github.com/ayareago/edisnote-mcp/issues",
   "license": "MIT"
 }
