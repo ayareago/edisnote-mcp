@@ -1,7 +1,7 @@
 {
   "name": "edisnote-mcp",
-  "version": "0.1.1",
-  "description": "Let Claude Code, Cursor and other AI agents see the notes and images you save with Edisnote. Read-only, local, no dependencies.",
+  "version": "0.2.0",
+  "description": "Let Claude Code, Codex, Cursor and other AI agents see the notes and images you save with Edisnote. Read-only, local, no dependencies.",
   "type": "module",
   "bin": {
     "edisnote-mcp": "bin/edisnote-mcp.js"
@@ -23,6 +23,7 @@
     "mcp",
     "edisnote",
     "claude",
+    "codex",
     "moodboard",
     "references",
     "obsidian"

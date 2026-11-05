@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * edisnote-mcp            run the MCP server on stdio (what an agent launches)
- * edisnote-mcp install    register it with Claude Code, print config for others
+ * edisnote-mcp install    register it with Claude Code and Codex, print config for others
  * edisnote-mcp check      show what the server can see, then exit
  *
  * Every form takes --dir <folder>. Without it, the folder is found on disk by
@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { serveStdio } from '../src/rpc.js';
 import { createHandlers, listFingerprint, NAME, VERSION } from '../src/server.js';
 import { locateFolder, loadVault } from '../src/vault.js';
+import { codexHome, codexEntry, addCodexServer, codexBlock } from '../src/codex.js';
 
 const SKILL_MARKER = 'edisnote-mcp skill';
 const NO_FOLDER = 'Turn on folder sync in Edisnote (the "Sync off" chip in the panel footer) and pick a folder, or pass --dir <folder>.';
@@ -136,10 +137,10 @@ async function install({ root, how, found }) {
   }
 
   installSkill();
+  installCodex(full);
 
   const [cmd, ...args] = full;
-  console.log('For Cursor, Claude Desktop or any other MCP app, add this to its MCP config:');
-  console.log(JSON.stringify({ mcpServers: { [NAME]: { command: cmd, args } } }, null, 2));
+  console.log('For Cursor, Claude Desktop or any other MCP app, add this to its MCP config:');  console.log(JSON.stringify({ mcpServers: { [NAME]: { command: cmd, args } } }, null, 2));
 }
 
 /**
@@ -186,6 +187,38 @@ function installSkill() {
   mkdirSync(dir, { recursive: true });
   writeFileSync(target, ours);
   console.log('Added the /edisnote skill. In the Claude desktop app, type /edisnote to pick a note.\n');
+}
+
+/**
+ * Adds the server to Codex (CLI, IDE extension and the ChatGPT/Codex desktop
+ * app all share one config). Only when Codex has been used on this computer,
+ * which leaves its config folder behind; otherwise there's nothing to add to,
+ * and creating the folder would leave clutter for people who don't use it.
+ * The old file is kept as config.toml.backup.
+ */
+function installCodex(full) {
+  const home = codexHome(process.env, homedir());
+  const file = join(home, 'config.toml');
+  const entry = codexEntry(full);
+  if (!existsSync(home)) {
+    console.log('Codex not found on this computer. If you use it later, run this again, or add this to ~/.codex/config.toml:');
+    console.log(codexBlock(NAME, entry));
+    return;
+  }
+  try {
+    const raw = existsSync(file) ? readFileSync(file, 'utf8') : '';
+    const { status, text } = addCodexServer(raw, NAME, entry);
+    if (status === 'exists') {
+      console.log(`Codex already has a server called "${NAME}" (${file}). To replace it, delete its [mcp_servers.${NAME}] section and run this again.\n`);
+      return;
+    }
+    if (raw) writeFileSync(`${file}.backup`, raw);
+    writeFileSync(file, text);
+    console.log(`Added to Codex (${file}). Restart the Codex or ChatGPT app, then ask "look at my Edisnote note on …".\n`);
+  } catch (err) {
+    console.log(`Couldn't update ${file} (${err.message}). Add this to it by hand:`);
+    console.log(codexBlock(NAME, entry));
+  }
 }
 
 /**

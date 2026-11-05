@@ -1,6 +1,6 @@
 # Edisnote for AI agents
 
-Let Claude Code, Cursor, and other AI tools see the notes and images you save
+Let Claude Code, Codex, Cursor and other AI tools see the notes and images you save
 with [Edisnote](https://chromewebstore.google.com/detail/edisnote/fbnlpkgckonpaekmbfohfobgabbigaan).
 
 Collect references in Chrome, then tell your agent "look at the two images I
@@ -38,8 +38,11 @@ leaves your computer except what your agent sends to its own AI model.
 npx -y edisnote-mcp install
 ```
 
-That adds it to Claude Code for every project, adds the `/edisnote` command, and prints the config for other
-apps. Start a new Claude Code session afterwards.
+This works the same on Mac and Windows. It adds Edisnote to Claude Code for
+every project with the `/edisnote` command, and to Codex if you've used Codex on
+this computer (the Codex CLI, the IDE extension and the ChatGPT/Codex desktop
+app share one config). Then start a new Claude Code session, or restart the
+Codex app.
 
 It finds your Edisnote folder by itself, and follows it if you change folders
 in Edisnote later. If you have more than one, it asks which. To name one
@@ -54,6 +57,22 @@ To check what it can see:
 ```bash
 npx -y edisnote-mcp check
 ```
+
+### Codex by hand
+
+The installer does this for you. To do it yourself, add this to
+`~/.codex/config.toml` (Windows: `%USERPROFILE%\.codex\config.toml`):
+
+```toml
+[mcp_servers.edisnote]
+command = "cmd"                                # Mac: "npx"
+args = ["/c", "npx", "-y", "edisnote-mcp"]     # Mac: ["-y", "edisnote-mcp"]
+startup_timeout_sec = 60
+```
+
+On Windows, Codex starts servers without a shell, so `npx` needs `cmd /c` in
+front. On a Mac, if Codex can't find `npx`, use its full path (run `which npx`).
+There's no `/edisnote` command in Codex; ask in plain words.
 
 ### Other apps
 
@@ -92,6 +111,9 @@ listed by file path instead of sent.
 ```bash
 claude mcp remove edisnote --scope user
 ```
+
+For Codex, delete the `[mcp_servers.edisnote]` section from
+`~/.codex/config.toml`.
 
 ## Develop
 
