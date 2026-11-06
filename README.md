@@ -1,6 +1,6 @@
 # Edisnote for AI agents
 
-Let Claude Code, Codex, Cursor and other AI tools see the notes and images you save
+Let Claude (the desktop app, free plan included, and Claude Code), Codex, Cursor and other AI tools see the notes and images you save
 with [Edisnote](https://chromewebstore.google.com/detail/edisnote/fbnlpkgckonpaekmbfohfobgabbigaan).
 
 Collect references in Chrome, then tell your agent "look at the two images I
@@ -38,11 +38,18 @@ leaves your computer except what your agent sends to its own AI model.
 npx -y edisnote-mcp install
 ```
 
-This works the same on Mac and Windows. It adds Edisnote to Claude Code for
-every project with the `/edisnote` command, and to Codex if you've used Codex on
-this computer (the Codex CLI, the IDE extension and the ChatGPT/Codex desktop
-app share one config). Then start a new Claude Code session, or restart the
-Codex app.
+This works the same on Mac and Windows. It adds Edisnote to:
+
+- **the Claude desktop app's chat**, on any plan, free included. Quit Claude
+  fully afterwards and open it again. On Windows, right-click the Claude icon
+  by the clock and choose Quit, because closing the window leaves it running.
+- **Claude Code** for every project, with the `/edisnote` command. Start a new
+  session.
+- **Codex**, if you've used it on this computer (the Codex CLI, the IDE
+  extension and the ChatGPT/Codex desktop app share one config). Restart the
+  Codex app.
+
+Then ask "look at my Edisnote note on …".
 
 It finds your Edisnote folder by itself, and follows it if you change folders
 in Edisnote later. If you have more than one, it asks which. To name one
@@ -57,6 +64,25 @@ To check what it can see:
 ```bash
 npx -y edisnote-mcp check
 ```
+
+### Claude desktop app by hand
+
+The installer does this for you. To do it yourself, open Settings → Developer →
+Edit Config in the app and add this (if the file already has `mcpServers`, add
+only the `edisnote` part inside it):
+
+```json
+{
+  "mcpServers": {
+    "edisnote": { "command": "cmd", "args": ["/c", "npx", "-y", "edisnote-mcp"] }
+  }
+}
+```
+
+On a Mac use `"command": "npx", "args": ["-y", "edisnote-mcp"]`, and if Claude
+can't find `npx`, its full path (run `which npx`). Quit Claude fully and open it
+again. This works in the desktop app only: claude.ai in a browser and the phone
+app can't reach files on your computer.
 
 ### Codex by hand
 
@@ -76,8 +102,7 @@ There's no `/edisnote` command in Codex; ask in plain words.
 
 ### Other apps
 
-Add this to the app's MCP settings (Cursor: `~/.cursor/mcp.json`; Claude
-Desktop: Settings → Developer → Edit Config):
+Add this to the app's MCP settings (Cursor: `~/.cursor/mcp.json`):
 
 ```json
 {
@@ -112,7 +137,8 @@ listed by file path instead of sent.
 claude mcp remove edisnote --scope user
 ```
 
-For Codex, delete the `[mcp_servers.edisnote]` section from
+For the Claude desktop app, open Settings → Developer → Edit Config and delete
+the `edisnote` entry. For Codex, delete the `[mcp_servers.edisnote]` section from
 `~/.codex/config.toml`.
 
 ## Develop

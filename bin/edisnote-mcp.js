@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * edisnote-mcp            run the MCP server on stdio (what an agent launches)
- * edisnote-mcp install    register it with Claude Code and Codex, print config for others
+ * edisnote-mcp install    register it with Claude Code, the Claude desktop app and Codex
  * edisnote-mcp check      show what the server can see, then exit
  *
  * Every form takes --dir <folder>. Without it, the folder is found on disk by
@@ -18,6 +18,7 @@ import { serveStdio } from '../src/rpc.js';
 import { createHandlers, listFingerprint, NAME, VERSION } from '../src/server.js';
 import { locateFolder, loadVault } from '../src/vault.js';
 import { codexHome, codexEntry, addCodexServer, codexBlock } from '../src/codex.js';
+import { desktopConfigFiles, addDesktopServer } from '../src/claude-desktop.js';
 
 const SKILL_MARKER = 'edisnote-mcp skill';
 const NO_FOLDER = 'Turn on folder sync in Edisnote (the "Sync off" chip in the panel footer) and pick a folder, or pass --dir <folder>.';
@@ -137,10 +138,61 @@ async function install({ root, how, found }) {
   }
 
   installSkill();
+  installDesktop(full);
   installCodex(full);
 
   const [cmd, ...args] = full;
-  console.log('For Cursor, Claude Desktop or any other MCP app, add this to its MCP config:');  console.log(JSON.stringify({ mcpServers: { [NAME]: { command: cmd, args } } }, null, 2));
+  console.log('For Cursor or any other MCP app, add this to its MCP config:');
+  console.log(JSON.stringify({ mcpServers: { [NAME]: { command: cmd, args } } }, null, 2));
+}
+
+/**
+ * Adds the server to the Claude desktop app's chat, which free users have and
+ * which reads its own config file, not Claude Code's. Same launch entry as
+ * Codex: the app starts servers without a shell (Windows needs `cmd /c npx`)
+ * and, on a Mac, without the terminal's PATH. Old file kept as .backup.
+ */
+function installDesktop(full) {
+  const entry = codexEntry(full);
+  const files = desktopConfigFiles({ home: homedir() });
+  const byHand = () => console.log(JSON.stringify({ mcpServers: { [NAME]: entry } }, null, 2));
+  if (!files.length) {
+    console.log('Claude desktop app not found. If you install it later, run this again, or paste this in Settings > Developer > Edit Config:');
+    byHand();
+    console.log('');
+    return;
+  }
+  let added = false;
+  for (const file of files) {
+    try {
+      const raw = existsSync(file) ? readFileSync(file, 'utf8') : '';
+      const { status, text } = addDesktopServer(raw, NAME, entry);
+      if (status === 'exists') {
+        console.log(`The Claude desktop app already has a server called "${NAME}" (${file}). To replace it, delete that entry and run this again.
+`);
+        continue;
+      }
+      if (status === 'invalid') {
+        console.log(`Left ${file} alone: it isn't valid JSON. Fix it, or add this to it by hand:`);
+        byHand();
+        console.log('');
+        continue;
+      }
+      if (raw) writeFileSync(`${file}.backup`, raw);
+      writeFileSync(file, text);
+      console.log(`Added to the Claude desktop app (${file}).`);
+      added = true;
+    } catch (err) {
+      console.log(`Couldn't update ${file} (${err.message}). In the app, open Settings > Developer > Edit Config and add:`);
+      byHand();
+      console.log('');
+    }
+  }
+  if (added) {
+    const quit = process.platform === 'win32' ? 'right-click the Claude icon by the clock and choose Quit' : 'press Cmd+Q';
+    console.log(`Quit Claude fully (${quit}; closing the window isn't enough), open it again, then ask "look at my Edisnote note on …".
+`);
+  }
 }
 
 /**

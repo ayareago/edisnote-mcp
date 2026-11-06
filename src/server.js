@@ -16,7 +16,7 @@ import { loadVault, imagesOf, readImage } from './vault.js';
 import { resolveNote, searchNotes, readableBody, normalise } from './notes.js';
 
 export const NAME = 'edisnote';
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 
 /** Newest first; the server answers in the client's version when it knows it. */
 const PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
